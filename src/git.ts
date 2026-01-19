@@ -19,6 +19,11 @@ export interface RepoInfo {
   wtDir: string;
 }
 
+export interface WorktreeResult {
+  path: string;
+  sourceDir: string;
+}
+
 export async function getRepoInfo(): Promise<RepoInfo | null> {
   try {
     const { inWorktree, mainRepo } = await isInsideWorktree();
@@ -117,7 +122,7 @@ export async function listWorktrees(repo: RepoInfo): Promise<Worktree[]> {
 export async function createWorktree(
   repo: RepoInfo,
   name: string,
-): Promise<string> {
+): Promise<WorktreeResult> {
   const date = new Date().toISOString().slice(0, 10);
   const fullName = `${date}-${name}`;
   const wtPath = join(repo.wtDir, fullName);
@@ -141,13 +146,13 @@ export async function createWorktree(
   }
 
   await $`git -C ${repo.root} worktree add -b ${branchName} ${wtPath} ${baseBranch}`;
-  return wtPath;
+  return { path: wtPath, sourceDir: repo.root };
 }
 
 export async function checkoutWorktree(
   repo: RepoInfo,
   remoteBranch: string,
-): Promise<string> {
+): Promise<WorktreeResult> {
   const branchName = remoteBranch
     .replace("origin/", "")
     .replace("refs/heads/", "");
@@ -156,7 +161,7 @@ export async function checkoutWorktree(
   await $`mkdir -p ${repo.wtDir}`;
   await $`git -C ${repo.root} fetch origin ${branchName}`.quiet();
   await $`git -C ${repo.root} worktree add ${wtPath} ${remoteBranch}`;
-  return wtPath;
+  return { path: wtPath, sourceDir: repo.root };
 }
 
 export async function removeWorktree(
