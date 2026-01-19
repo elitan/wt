@@ -1,8 +1,8 @@
 # Commits
 
-- Use imperative verb: Add, Fix, Update, Remove, Refactor.
-- Branch: `add-dark-mode`, `fix-login-bug`
-- PR title / commit: `Add dark mode toggle`, `Fix login redirect bug`
+- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+- Branch: `feat/dark-mode`, `fix/login-bug`
+- PR title / commit: `feat: add dark mode`, `fix: login redirect`
 
 # Release
 
