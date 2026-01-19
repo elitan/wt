@@ -102,7 +102,11 @@ async function main() {
 
   const worktrees = await listWorktrees(repo!);
   const initialQuery = args.join(" ");
-  const result = await picker(worktrees, initialQuery);
+  const result = await picker({
+    repoName: repo!.name,
+    worktrees,
+    initialQuery,
+  });
 
   if (result.type === "select" && result.value) {
     output(`cd "${result.value}"`);

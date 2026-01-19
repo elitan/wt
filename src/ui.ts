@@ -75,7 +75,14 @@ interface PickerResult {
   value?: string;
 }
 
-export async function picker(worktrees: Worktree[], initialQuery: string = ""): Promise<PickerResult> {
+interface PickerOptions {
+  repoName: string;
+  worktrees: Worktree[];
+  initialQuery?: string;
+}
+
+export async function picker(options: PickerOptions): Promise<PickerResult> {
+  const { repoName, worktrees, initialQuery = "" } = options;
   let query = initialQuery;
   let selectedIndex = 0;
 
@@ -95,7 +102,14 @@ export async function picker(worktrees: Worktree[], initialQuery: string = ""): 
 
     cursor.moveTo(1, 1);
     screen.clearLine();
-    process.stdout.write(`${style.cyan}❯${style.reset} ${query}${style.dim}_${style.reset}\n`);
+    process.stdout.write(`${style.dim}wt${style.reset} ${style.bold}${repoName}${style.reset}\n`);
+    screen.clearLine();
+    process.stdout.write("\n");
+
+    screen.clearLine();
+    const placeholder = query ? "" : `${style.dim}search or create worktree...${style.reset}`;
+    const input = query || placeholder;
+    process.stdout.write(`${style.cyan}❯${style.reset} ${input}${query ? `${style.dim}▌${style.reset}` : ""}\n`);
 
     const maxRows = Math.min(10, totalItems);
 
@@ -124,10 +138,13 @@ export async function picker(worktrees: Worktree[], initialQuery: string = ""): 
       }
     }
 
-    for (let i = maxRows; i < 12; i++) {
+    for (let i = maxRows; i < 10; i++) {
       screen.clearLine();
       process.stdout.write("\n");
     }
+
+    screen.clearLine();
+    process.stdout.write(`\n${style.dim}↑↓ navigate · enter select · esc cancel${style.reset}`);
   }
 
   return new Promise((resolve) => {
