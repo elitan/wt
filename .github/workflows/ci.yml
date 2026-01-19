@@ -54,6 +54,10 @@ jobs:
           cd /tmp/test-repo
           git init
           echo "test" > README.md
+          echo '{"name":"test"}' > package.json
+          echo ".env" > .gitignore
+          echo "SECRET=abc123" > .env
+          touch bun.lockb
           git add .
           git commit -m "init"
           git remote add origin /tmp/origin.git
@@ -73,6 +77,11 @@ jobs:
 
       - name: Verify worktree created
         run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev list 2>&1 | grep test-branch
+
+      - name: Verify .env copied to worktree
+        run: |
+          WT_PATH=$(ls -d ~/.wt/test-repo/*test-branch)
+          test -f "$WT_PATH/.env" && grep "SECRET=abc123" "$WT_PATH/.env"
 
       - name: Test rm with -y
         run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev rm test-branch -y 2>&1 | grep "Removed"
