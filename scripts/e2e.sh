@@ -4,10 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 WT_BIN="${WT_BIN:-$ROOT_DIR/wt-dev}"
-TEST_DIR="/tmp/wt-e2e-$$"
+TEST_ID="wt-e2e-$$"
+TEST_DIR="/tmp/$TEST_ID"
+REPO_NAME="$TEST_ID-repo"
 
 cleanup() {
-  rm -rf "$TEST_DIR" ~/.wt/test-repo 2>/dev/null || true
+  rm -rf "$TEST_DIR" ~/.wt/"$REPO_NAME" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -22,7 +24,7 @@ fail() {
 
 setup_test_repo() {
   log "Setting up test repo"
-  mkdir -p "$TEST_DIR/origin.git" "$TEST_DIR/test-repo"
+  mkdir -p "$TEST_DIR/origin.git" "$TEST_DIR/$REPO_NAME"
 
   git config --global user.email "test@test.com" 2>/dev/null || true
   git config --global user.name "Test" 2>/dev/null || true
@@ -31,7 +33,7 @@ setup_test_repo() {
   cd "$TEST_DIR/origin.git"
   git init --bare -q
 
-  cd "$TEST_DIR/test-repo"
+  cd "$TEST_DIR/$REPO_NAME"
   git init -q
   echo "test" > README.md
   echo '{"name":"test"}' > package.json
@@ -56,27 +58,27 @@ test_version() {
 
 test_list() {
   log "Test list"
-  cd "$TEST_DIR/test-repo"
+  cd "$TEST_DIR/$REPO_NAME"
   "$WT_BIN" list 2>&1 | grep -q "main" || fail "list should show main"
 }
 
 test_new_worktree() {
   log "Test new worktree"
-  cd "$TEST_DIR/test-repo"
+  cd "$TEST_DIR/$REPO_NAME"
   "$WT_BIN" new test-branch 2>&1 | grep -v "^cd " || true
   "$WT_BIN" list 2>&1 | grep -q "test-branch" || fail "worktree not created"
 }
 
 test_env_copied() {
   log "Test .env copied to worktree"
-  WT_PATH=$(ls -d ~/.wt/test-repo/*test-branch 2>/dev/null) || fail "worktree dir not found"
+  WT_PATH=$(ls -d ~/.wt/"$REPO_NAME"/*test-branch 2>/dev/null) || fail "worktree dir not found"
   test -f "$WT_PATH/.env" || fail ".env not copied"
   grep -q "SECRET=abc123" "$WT_PATH/.env" || fail ".env content mismatch"
 }
 
 test_rm() {
   log "Test rm with -y"
-  cd "$TEST_DIR/test-repo"
+  cd "$TEST_DIR/$REPO_NAME"
   "$WT_BIN" rm test-branch -y 2>&1 | grep -q "Removed" || fail "rm failed"
 }
 
