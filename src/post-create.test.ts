@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { detectPackageManager } from "./post-create";
 
@@ -6,7 +6,7 @@ describe("detectPackageManager", () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = join(import.meta.dir, "..", ".test-pm-" + Date.now());
+    testDir = join(import.meta.dir, "..", `.test-pm-${Date.now()}`);
     await Bun.$`mkdir -p ${testDir}`.quiet();
   });
 

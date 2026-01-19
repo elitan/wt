@@ -1,6 +1,5 @@
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { $ } from "bun";
-import type { RepoInfo } from "./git";
 
 const EXCLUDED_DIRS = new Set([
   "node_modules",
@@ -17,7 +16,6 @@ const EXCLUDED_DIRS = new Set([
 type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
 export async function postCreateSetup(
-  repo: RepoInfo,
   wtPath: string,
   sourceDir: string,
 ): Promise<void> {

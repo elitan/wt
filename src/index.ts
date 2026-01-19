@@ -64,7 +64,7 @@ async function main() {
     const name = args.slice(1).join("-");
     if (!name) error("usage: wt new <name>");
     const result = await createWorktree(repo!, name);
-    await postCreateSetup(repo!, result.path, result.sourceDir);
+    await postCreateSetup(result.path, result.sourceDir);
     const date = new Date().toISOString().slice(0, 10);
     output(`cd "${result.path}"`, `${date}-${name}`);
     return;
@@ -74,7 +74,7 @@ async function main() {
     const branch = args[1];
     if (!branch) error("usage: wt checkout <branch>");
     const result = await checkoutWorktree(repo!, branch);
-    await postCreateSetup(repo!, result.path, result.sourceDir);
+    await postCreateSetup(result.path, result.sourceDir);
     const branchName = branch.replace("origin/", "").replace("refs/heads/", "");
     output(`cd "${result.path}"`, branchName);
     return;
@@ -152,7 +152,7 @@ async function main() {
   } else if (result.type === "create" && result.value) {
     const name = result.value.replace(/\s+/g, "-");
     const wtResult = await createWorktree(repo!, name);
-    await postCreateSetup(repo!, wtResult.path, wtResult.sourceDir);
+    await postCreateSetup(wtResult.path, wtResult.sourceDir);
     const date = new Date().toISOString().slice(0, 10);
     output(`cd "${wtResult.path}"`, `${date}-${name}`);
   }
