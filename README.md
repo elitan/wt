@@ -15,12 +15,17 @@ source ~/.zshrc  # or restart your terminal
 ```bash
 wt                    # Interactive picker (fuzzy search)
 wt <query>            # Search or create worktree
+wt <github-url>       # Create worktree from GitHub issue/PR URL
 wt new <name>         # Create worktree from origin/main
+wt new <github-url>   # Create worktree from GitHub issue/PR URL
 wt checkout <branch>  # Checkout existing remote branch
-wt rm [name]          # Remove worktree
+wt rm [name] [-y]     # Remove worktree (-y skips confirmation)
 wt main               # Go to main repo
 wt list               # List all worktrees
 wt upgrade            # Upgrade to latest version
+wt setup              # Setup shell integration
+wt init               # Print shell function
+wt --version          # Print version
 ```
 
 ## How it works
