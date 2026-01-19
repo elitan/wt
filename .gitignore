@@ -5,6 +5,7 @@ node_modules
 out
 dist
 *.tgz
+wt-dev
 
 # code coverage
 coverage

@@ -1,35 +1,45 @@
 #!/bin/bash
 set -e
 
-INSTALL_DIR="${HOME}/.wt-cli"
-BIN_DIR="${HOME}/.local/bin"
+REPO="elitan/wt"
+INSTALL_DIR="${HOME}/.local/bin"
 
-echo "Installing wt..."
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
 
-if ! command -v bun &> /dev/null; then
-  echo "Error: bun is required. Install it first: https://bun.sh"
+case "$OS" in
+  darwin) OS="darwin" ;;
+  linux) OS="linux" ;;
+  *) echo "Unsupported OS: $OS"; exit 1 ;;
+esac
+
+case "$ARCH" in
+  arm64|aarch64) ARCH="arm64" ;;
+  x86_64|amd64) ARCH="x64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+ASSET="wt-${OS}-${ARCH}"
+echo "Downloading ${ASSET}..."
+
+RELEASE_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep "browser_download_url.*${ASSET}\"" | cut -d '"' -f 4)
+
+if [ -z "$RELEASE_URL" ]; then
+  echo "Error: Could not find release for ${ASSET}"
   exit 1
 fi
 
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR" "$BIN_DIR"
+mkdir -p "$INSTALL_DIR"
+curl -sL "$RELEASE_URL" -o "${INSTALL_DIR}/wt"
+chmod +x "${INSTALL_DIR}/wt"
 
-echo "Downloading..."
-curl -sL https://github.com/elitan/wt/archive/refs/heads/main.tar.gz | tar -xz -C "$INSTALL_DIR" --strip-components=1
+echo "Installed wt to ${INSTALL_DIR}/wt"
 
-cd "$INSTALL_DIR"
-bun install --frozen-lockfile
-
-cat > "$BIN_DIR/wt" << 'EOF'
-#!/bin/bash
-bun "$HOME/.wt-cli/src/index.ts" "$@"
-EOF
-chmod +x "$BIN_DIR/wt"
+if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
+  echo ""
+  echo "Add to your PATH:"
+  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+fi
 
 echo ""
-echo "Installed! Add to your shell config:"
-echo ""
-echo '  # ~/.zshrc or ~/.bashrc'
-echo '  export PATH="$HOME/.local/bin:$PATH"'
-echo '  eval "$(wt init)"'
-echo ""
+echo "Run 'wt setup' to configure shell integration"

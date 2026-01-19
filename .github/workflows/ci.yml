@@ -21,3 +21,44 @@ jobs:
       - run: bun run lint
 
       - run: bun run typecheck
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      - name: Build binary
+        run: bun run build
+
+      - name: Setup test repo
+        run: |
+          git config --global user.email "test@test.com"
+          git config --global user.name "Test"
+          mkdir -p /tmp/test-repo
+          cd /tmp/test-repo
+          git init
+          echo "test" > README.md
+          git add .
+          git commit -m "init"
+
+      - name: Test --help
+        run: ./wt-dev --help
+
+      - name: Test --version
+        run: ./wt-dev --version | grep -E '^dev$'
+
+      - name: Test list
+        run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev list
+
+      - name: Test new worktree
+        run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev new test-branch 2>&1 | grep -v "^cd "
+
+      - name: Test rm with -y
+        run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev rm test-branch -y 2>&1 | grep "Removed"

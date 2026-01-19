@@ -21,8 +21,9 @@
   },
   "scripts": {
     "dev": "bun run src/index.ts",
+    "build": "bun build --compile --define 'process.env.VERSION=\"dev\"' --outfile wt-dev src/index.ts",
     "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

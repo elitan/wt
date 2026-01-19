@@ -9,6 +9,8 @@ import {
   removeWorktree,
 } from "./git";
 import { confirm, deletePicker, picker } from "./ui";
+import { upgrade } from "./upgrade";
+import { VERSION } from "./version";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -42,6 +44,16 @@ async function main() {
     return;
   }
 
+  if (command === "--version" || command === "-v") {
+    console.log(VERSION);
+    return;
+  }
+
+  if (command === "upgrade") {
+    await upgrade();
+    return;
+  }
+
   const repo = await getRepoInfo();
   if (!repo) {
     error("not in a git repository");
@@ -66,7 +78,9 @@ async function main() {
   }
 
   if (command === "rm") {
-    const name = args[1];
+    const rmArgs = args.slice(1);
+    const skipConfirm = rmArgs.includes("-y") || rmArgs.includes("--yes");
+    const name = rmArgs.find((a) => a !== "-y" && a !== "--yes");
     const worktrees = await listWorktrees(repo!);
     const cwd = process.cwd();
 
@@ -76,7 +90,7 @@ async function main() {
       );
       if (!wt) error(`worktree not found: ${name}`);
       if (wt!.name === "main") error("cannot delete main repo");
-      if (await confirm(`Remove ${wt!.name}?`)) {
+      if (skipConfirm || (await confirm(`Remove ${wt!.name}?`))) {
         await removeWorktree(repo!, wt!.path);
         console.error(`Removed ${wt!.name}`);
         if (cwd.startsWith(wt!.path)) {
@@ -144,7 +158,7 @@ function printShellInit() {
   const script = `
 wt() {
   local result cmdline
-  result=$(command bun "${import.meta.dir}/index.ts" "$@")
+  result=$(command wt "$@")
   cmdline=$(echo "$result" | sed 's/\\x1b\\[[0-9;]*m//g' | grep -E '^(cd "|echo )' | tail -1)
   if [[ -n "$cmdline" ]]; then
     eval "$cmdline"
@@ -208,11 +222,13 @@ Usage:
   wt <query>            Search or create worktree
   wt new <name>         Create new worktree from origin/main
   wt checkout <branch>  Checkout existing remote branch
-  wt rm [name]          Remove worktree (current if inside one)
+  wt rm [name] [-y]     Remove worktree (-y skips confirmation)
   wt main               Go to main repo
   wt list               List all worktrees
+  wt upgrade            Upgrade to latest version
   wt setup              Setup shell integration (one-time)
   wt init               Print shell function
+  wt --version          Print version
 `);
 }
 

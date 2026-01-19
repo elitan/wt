@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-13
+            target: darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      - name: Build binary
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          bun build --compile --minify \
+            --define "process.env.VERSION=\"$VERSION\"" \
+            --outfile wt-${{ matrix.target }} \
+            src/index.ts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wt-${{ matrix.target }}
+          path: wt-${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/*
+          generate_release_notes: true
