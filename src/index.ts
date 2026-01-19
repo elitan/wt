@@ -6,8 +6,18 @@ import {
   getMainRepoPath,
   getRepoInfo,
   listWorktrees,
+  type RepoInfo,
   removeWorktree,
+  validateBranchName,
 } from "./git";
+import {
+  checkGhCli,
+  getIssueInfo,
+  getPrBranch,
+  isGithubUrl,
+  parseGithubUrl,
+  slugify,
+} from "./github";
 import { postCreateSetup } from "./post-create";
 import { confirm, deletePicker, picker } from "./ui";
 import { upgrade } from "./upgrade";
@@ -27,6 +37,34 @@ function output(cmd: string, tabTitle?: string) {
 function error(msg: string): never {
   console.error(`wt: ${msg}`);
   process.exit(1);
+}
+
+async function handleGithubUrl(repo: RepoInfo, url: string): Promise<void> {
+  await checkGhCli();
+  const parsed = parseGithubUrl(url);
+  if (!parsed) error("invalid GitHub URL");
+
+  const { owner, repo: repoName, number } = parsed;
+
+  if (parsed.type === "pr") {
+    const branch = await getPrBranch(owner, repoName, number);
+    const worktrees = await listWorktrees(repo);
+    const existing = worktrees.find((w) => w.branch === branch);
+    if (existing) {
+      output(`cd "${existing.path}"`, existing.name);
+      return;
+    }
+    const result = await checkoutWorktree(repo, `origin/${branch}`);
+    await postCreateSetup(result.path, result.sourceDir);
+    output(`cd "${result.path}"`, branch);
+    return;
+  }
+
+  const issue = await getIssueInfo(owner, repoName, number);
+  const branchName = `${slugify(issue.title)}-${issue.number}`;
+  const result = await createWorktree(repo, branchName);
+  await postCreateSetup(result.path, result.sourceDir);
+  output(`cd "${result.path}"`, branchName);
 }
 
 async function main() {
@@ -60,13 +98,23 @@ async function main() {
     error("not in a git repository");
   }
 
+  if (command && isGithubUrl(command)) {
+    await handleGithubUrl(repo!, command);
+    return;
+  }
+
   if (command === "new") {
     const name = args.slice(1).join("-");
     if (!name) error("usage: wt new <name>");
+    if (isGithubUrl(name)) {
+      await handleGithubUrl(repo!, name);
+      return;
+    }
+    const validationError = validateBranchName(name);
+    if (validationError) error(validationError);
     const result = await createWorktree(repo!, name);
     await postCreateSetup(result.path, result.sourceDir);
-    const date = new Date().toISOString().slice(0, 10);
-    output(`cd "${result.path}"`, `${date}-${name}`);
+    output(`cd "${result.path}"`, name);
     return;
   }
 
@@ -155,10 +203,14 @@ async function main() {
       break;
     } else if (result.type === "create" && result.value) {
       const name = result.value.replace(/\s+/g, "-");
+      const validationError = validateBranchName(name);
+      if (validationError) {
+        console.error(`wt: ${validationError}`);
+        continue;
+      }
       const wtResult = await createWorktree(repo!, name);
       await postCreateSetup(wtResult.path, wtResult.sourceDir);
-      const date = new Date().toISOString().slice(0, 10);
-      output(`cd "${wtResult.path}"`, `${date}-${name}`);
+      output(`cd "${wtResult.path}"`, name);
       break;
     } else if (result.type === "delete" && result.value) {
       const wt = worktrees.find((w) => w.path === result.value);
@@ -245,7 +297,9 @@ function printHelp() {
 Usage:
   wt                    Interactive picker (fuzzy search)
   wt <query>            Search or create worktree
+  wt <github-url>       Create worktree from GitHub issue/PR URL
   wt new <name>         Create new worktree from origin/main
+  wt new <github-url>   Create worktree from GitHub issue/PR URL
   wt checkout <branch>  Checkout existing remote branch
   wt rm [name] [-y]     Remove worktree (-y skips confirmation)
   wt main               Go to main repo
