@@ -1,24 +1,29 @@
 #!/usr/bin/env bun
 
 import {
+  checkoutWorktree,
+  createWorktree,
+  getMainRepoPath,
   getRepoInfo,
   listWorktrees,
-  createWorktree,
-  checkoutWorktree,
   removeWorktree,
-  isInsideWorktree,
-  getMainRepoPath,
 } from "./git";
-import { picker, confirm } from "./ui";
+import { confirm, deletePicker, picker } from "./ui";
+import { upgrade } from "./upgrade";
+import { VERSION } from "./version";
 
 const args = process.argv.slice(2);
 const command = args[0];
 
-function output(cmd: string) {
-  console.log(cmd);
+function output(cmd: string, tabTitle?: string) {
+  if (tabTitle) {
+    console.log(`echo -ne "\\033]0;${tabTitle}\\007"; ${cmd}`);
+  } else {
+    console.log(cmd);
+  }
 }
 
-function error(msg: string) {
+function error(msg: string): never {
   console.error(`wt: ${msg}`);
   process.exit(1);
 }
@@ -29,8 +34,23 @@ async function main() {
     return;
   }
 
+  if (command === "setup") {
+    await setupShell();
+    return;
+  }
+
   if (command === "--help" || command === "-h") {
     printHelp();
+    return;
+  }
+
+  if (command === "--version" || command === "-v") {
+    console.log(VERSION);
+    return;
+  }
+
+  if (command === "upgrade") {
+    await upgrade();
     return;
   }
 
@@ -43,7 +63,8 @@ async function main() {
     const name = args.slice(1).join("-");
     if (!name) error("usage: wt new <name>");
     const wtPath = await createWorktree(repo!, name);
-    output(`cd "${wtPath}"`);
+    const date = new Date().toISOString().slice(0, 10);
+    output(`cd "${wtPath}"`, `${date}-${name}`);
     return;
   }
 
@@ -51,43 +72,53 @@ async function main() {
     const branch = args[1];
     if (!branch) error("usage: wt checkout <branch>");
     const wtPath = await checkoutWorktree(repo!, branch);
-    output(`cd "${wtPath}"`);
+    const branchName = branch.replace("origin/", "").replace("refs/heads/", "");
+    output(`cd "${wtPath}"`, branchName);
     return;
   }
 
   if (command === "rm") {
-    const name = args[1];
+    const rmArgs = args.slice(1);
+    const skipConfirm = rmArgs.includes("-y") || rmArgs.includes("--yes");
+    const name = rmArgs.find((a) => a !== "-y" && a !== "--yes");
     const worktrees = await listWorktrees(repo!);
+    const cwd = process.cwd();
 
     if (name) {
-      const wt = worktrees.find((w) => w.name === name || w.name.includes(name));
+      const wt = worktrees.find(
+        (w) => w.name === name || w.name.includes(name),
+      );
       if (!wt) error(`worktree not found: ${name}`);
-      if (await confirm(`Remove ${wt!.name}?`)) {
+      if (wt!.name === "main") error("cannot delete main repo");
+      if (skipConfirm || (await confirm(`Remove ${wt!.name}?`))) {
         await removeWorktree(repo!, wt!.path);
         console.error(`Removed ${wt!.name}`);
+        if (cwd.startsWith(wt!.path)) {
+          output(`cd "${repo!.root}"`, repo!.name);
+        }
       }
       return;
     }
 
-    const { inWorktree } = await isInsideWorktree();
-    if (inWorktree) {
-      const cwd = process.cwd();
-      const wt = worktrees.find((w) => cwd.startsWith(w.path));
-      if (wt && (await confirm(`Remove current worktree ${wt.name}?`))) {
-        const mainPath = await getMainRepoPath();
-        await removeWorktree(repo!, wt.path);
-        console.error(`Removed ${wt.name}`);
-        if (mainPath) output(`cd "${mainPath}"`);
-      }
-      return;
-    }
+    const wt = await deletePicker({
+      repoName: repo!.name,
+      worktrees,
+      currentPath: cwd,
+    });
 
-    error("usage: wt rm [name] (or run inside a worktree)");
+    if (wt) {
+      await removeWorktree(repo!, wt.path);
+      console.error(`Removed ${wt.name}`);
+      if (cwd.startsWith(wt.path)) {
+        output(`cd "${repo!.root}"`, repo!.name);
+      }
+    }
+    return;
   }
 
   if (command === "main") {
     const mainPath = await getMainRepoPath();
-    if (mainPath) output(`cd "${mainPath}"`);
+    if (mainPath) output(`cd "${mainPath}"`, repo!.name);
     else error("could not find main repo");
     return;
   }
@@ -102,33 +133,85 @@ async function main() {
 
   const worktrees = await listWorktrees(repo!);
   const initialQuery = args.join(" ");
+  const cwd = process.cwd();
+  const currentWt = worktrees.find(
+    (w) => cwd.startsWith(w.path) && w.name !== "main",
+  );
   const result = await picker({
     repoName: repo!.name,
     worktrees,
-    initialQuery,
+    initialQuery: initialQuery || currentWt?.name || "",
   });
 
   if (result.type === "select" && result.value) {
-    output(`cd "${result.value}"`);
+    const wt = worktrees.find((w) => w.path === result.value);
+    output(`cd "${result.value}"`, wt?.name || repo!.name);
   } else if (result.type === "create" && result.value) {
-    const wtPath = await createWorktree(repo!, result.value.replace(/\s+/g, "-"));
-    output(`cd "${wtPath}"`);
+    const name = result.value.replace(/\s+/g, "-");
+    const wtPath = await createWorktree(repo!, name);
+    const date = new Date().toISOString().slice(0, 10);
+    output(`cd "${wtPath}"`, `${date}-${name}`);
   }
 }
 
 function printShellInit() {
   const script = `
 wt() {
-  local result
-  result=$(command bun "${import.meta.dir}/index.ts" "$@")
-  if [[ "$result" == cd\\ * ]]; then
-    eval "$result"
+  local result cmdline
+  result=$(command wt "$@")
+  cmdline=$(echo "$result" | sed 's/\\x1b\\[[0-9;]*m//g' | grep -E '^(cd "|echo )' | tail -1)
+  if [[ -n "$cmdline" ]]; then
+    eval "$cmdline"
   elif [[ -n "$result" ]]; then
     echo "$result"
   fi
 }
 `.trim();
   console.log(script);
+}
+
+async function setupShell() {
+  const shell = process.env.SHELL || "";
+  const home = process.env.HOME || "";
+
+  if (!home) {
+    error("could not determine home directory");
+  }
+
+  let configFile: string;
+  let initLine: string;
+
+  if (shell.endsWith("zsh")) {
+    configFile = `${home}/.zshrc`;
+    initLine = 'eval "$(wt init)"';
+  } else if (shell.endsWith("bash")) {
+    configFile = `${home}/.bashrc`;
+    initLine = 'eval "$(wt init)"';
+  } else if (shell.endsWith("fish")) {
+    configFile = `${home}/.config/fish/config.fish`;
+    initLine = "wt init | source";
+  } else {
+    error(`unsupported shell: ${shell}`);
+    return;
+  }
+
+  const file = Bun.file(configFile);
+  const exists = await file.exists();
+  const content = exists ? await file.text() : "";
+
+  if (content.includes("wt init")) {
+    console.log(`wt already configured in ${configFile}`);
+    return;
+  }
+
+  const newContent =
+    content.endsWith("\n") || !content
+      ? `${content}${initLine}\n`
+      : `${content}\n${initLine}\n`;
+
+  await Bun.write(configFile, newContent);
+  console.log(`Added wt to ${configFile}`);
+  console.log(`Run: source ${configFile}`);
 }
 
 function printHelp() {
@@ -139,13 +222,13 @@ Usage:
   wt <query>            Search or create worktree
   wt new <name>         Create new worktree from origin/main
   wt checkout <branch>  Checkout existing remote branch
-  wt rm [name]          Remove worktree (current if inside one)
+  wt rm [name] [-y]     Remove worktree (-y skips confirmation)
   wt main               Go to main repo
   wt list               List all worktrees
-  wt init               Print shell integration
-
-Setup:
-  eval "$(wt init)"     Add to .zshrc or .bashrc
+  wt upgrade            Upgrade to latest version
+  wt setup              Setup shell integration (one-time)
+  wt init               Print shell function
+  wt --version          Print version
 `);
 }
 

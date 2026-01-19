@@ -1,7 +1,26 @@
-import * as p from "@clack/prompts";
+import * as fs from "node:fs";
+import { input, confirm as inquirerConfirm, search } from "@inquirer/prompts";
 import type { Worktree } from "./git";
 
-function fuzzyMatch(query: string, text: string): { match: boolean; score: number } {
+let _ctx: {
+  input: NodeJS.ReadableStream;
+  output: NodeJS.WritableStream;
+} | null = null;
+
+function getCtx() {
+  if (!_ctx) {
+    const ttyInput = process.stdin.isTTY
+      ? process.stdin
+      : fs.createReadStream("/dev/tty");
+    _ctx = { input: ttyInput, output: process.stderr };
+  }
+  return _ctx;
+}
+
+function fuzzyMatch(
+  query: string,
+  text: string,
+): { match: boolean; score: number } {
   if (!query) return { match: true, score: 0 };
 
   const q = query.toLowerCase();
@@ -53,111 +72,143 @@ interface PickerOptions {
   initialQuery?: string;
 }
 
+function fuzzyFilter(worktrees: Worktree[], term: string | undefined) {
+  return worktrees
+    .map((wt) => ({ wt, ...fuzzyMatch(term || "", wt.name) }))
+    .filter((x) => x.match)
+    .sort((a, b) => b.score - a.score);
+}
+
 export async function picker(options: PickerOptions): Promise<PickerResult> {
   const { repoName, worktrees, initialQuery = "" } = options;
 
-  p.intro(`wt › ${repoName}`);
-
   if (initialQuery) {
-    const matches = worktrees
-      .map((wt) => ({ wt, ...fuzzyMatch(initialQuery, wt.name) }))
-      .filter((x) => x.match)
-      .sort((a, b) => b.score - a.score);
+    const matches = fuzzyFilter(worktrees, initialQuery);
+    const first = matches[0];
 
-    if (matches.length === 1) {
-      p.outro(`→ ${matches[0].wt.name}`);
-      return { type: "select", value: matches[0].wt.path };
+    if (matches.length === 1 && first) {
+      console.error(`→ ${first.wt.name}`);
+      return { type: "select", value: first.wt.path };
     }
-
-    if (matches.length > 1) {
-      const selected = await p.select({
-        message: `Found ${matches.length} matches for "${initialQuery}"`,
-        options: [
-          ...matches.map((m) => ({
-            value: m.wt.path,
-            label: m.wt.name,
-            hint: formatAge(m.wt.createdAt),
-          })),
-          { value: "__create__", label: `+ Create "${initialQuery}"` },
-        ],
-      });
-
-      if (p.isCancel(selected)) {
-        p.cancel("Cancelled");
-        return { type: "cancel" };
-      }
-
-      if (selected === "__create__") {
-        return { type: "create", value: initialQuery };
-      }
-
-      return { type: "select", value: selected as string };
-    }
-
-    const shouldCreate = await p.confirm({
-      message: `No matches. Create "${initialQuery}"?`,
-    });
-
-    if (p.isCancel(shouldCreate) || !shouldCreate) {
-      p.cancel("Cancelled");
-      return { type: "cancel" };
-    }
-
-    return { type: "create", value: initialQuery };
   }
 
   if (worktrees.length === 0) {
-    const name = await p.text({
-      message: "Create your first worktree",
-      placeholder: "feature-name",
-      validate: (v) => (v.length === 0 ? "Name required" : undefined),
-    });
-
-    if (p.isCancel(name)) {
-      p.cancel("Cancelled");
+    try {
+      const name = await input(
+        {
+          message: `wt › ${repoName} › Create your first worktree`,
+          default: initialQuery || undefined,
+          validate: (v) => (v.length === 0 ? "Name required" : true),
+        },
+        getCtx(),
+      );
+      return { type: "create", value: name };
+    } catch {
       return { type: "cancel" };
     }
-
-    return { type: "create", value: name as string };
   }
 
-  const selected = await p.select({
-    message: "Select worktree",
-    options: [
-      ...worktrees.map((wt) => ({
-        value: wt.path,
-        label: wt.name,
-        hint: formatAge(wt.createdAt),
-      })),
-      { value: "__create__", label: "+ Create new worktree" },
-    ],
-  });
+  try {
+    let lastTerm = initialQuery;
 
-  if (p.isCancel(selected)) {
-    p.cancel("Cancelled");
+    const selected = await search(
+      {
+        message: `wt › ${repoName} / `,
+        source: async (term) => {
+          const searchTerm = term ?? initialQuery;
+          lastTerm = searchTerm;
+          const filtered = fuzzyFilter(worktrees, searchTerm);
+          const createLabel = searchTerm
+            ? `+ Create "${searchTerm}"`
+            : "+ Create new";
+          return [
+            ...filtered.map((m) => ({
+              name: m.wt.name,
+              value: m.wt.path,
+              description: formatAge(m.wt.createdAt),
+            })),
+            { name: createLabel, value: "__create__", description: "" },
+          ];
+        },
+      },
+      getCtx(),
+    );
+
+    if (selected === "__create__") {
+      if (!lastTerm) {
+        const name = await input(
+          {
+            message: "Worktree name",
+            validate: (v) => (v.length === 0 ? "Name required" : true),
+          },
+          getCtx(),
+        );
+        return { type: "create", value: name };
+      }
+      return { type: "create", value: lastTerm };
+    }
+
+    return { type: "select", value: selected };
+  } catch {
     return { type: "cancel" };
   }
-
-  if (selected === "__create__") {
-    const name = await p.text({
-      message: "Worktree name",
-      placeholder: "feature-name",
-      validate: (v) => (v.length === 0 ? "Name required" : undefined),
-    });
-
-    if (p.isCancel(name)) {
-      p.cancel("Cancelled");
-      return { type: "cancel" };
-    }
-
-    return { type: "create", value: name as string };
-  }
-
-  return { type: "select", value: selected as string };
 }
 
 export async function confirm(message: string): Promise<boolean> {
-  const result = await p.confirm({ message });
-  if (p.isCancel(result)) return false;
-  return result;
+  try {
+    return await inquirerConfirm({ message }, getCtx());
+  } catch {
+    return false;
+  }
+}
+
+interface DeletePickerOptions {
+  repoName: string;
+  worktrees: Worktree[];
+  currentPath?: string;
+}
+
+export async function deletePicker(
+  options: DeletePickerOptions,
+): Promise<Worktree | null> {
+  const { repoName, worktrees, currentPath } = options;
+  const deletable = worktrees.filter((wt) => wt.name !== "main");
+
+  if (deletable.length === 0) {
+    console.error("No worktrees to delete");
+    return null;
+  }
+
+  const currentWt = currentPath
+    ? deletable.find((wt) => currentPath.startsWith(wt.path))
+    : undefined;
+  const initialQuery = currentWt?.name || "";
+
+  try {
+    const selected = await search(
+      {
+        message: `wt rm › ${repoName} / `,
+        source: async (term) => {
+          const searchTerm = term ?? initialQuery;
+          const filtered = fuzzyFilter(deletable, searchTerm);
+          return filtered.map((m) => ({
+            name: m.wt.name,
+            value: m.wt.path,
+            description: formatAge(m.wt.createdAt),
+          }));
+        },
+      },
+      getCtx(),
+    );
+
+    const wt = deletable.find((w) => w.path === selected);
+    if (!wt) return null;
+
+    if (await confirm(`Delete ${wt.name}?`)) {
+      return wt;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
