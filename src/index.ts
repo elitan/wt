@@ -8,6 +8,7 @@ import {
   listWorktrees,
   removeWorktree,
 } from "./git";
+import { postCreateSetup } from "./post-create";
 import { confirm, deletePicker, picker } from "./ui";
 import { upgrade } from "./upgrade";
 import { VERSION } from "./version";
@@ -62,18 +63,20 @@ async function main() {
   if (command === "new") {
     const name = args.slice(1).join("-");
     if (!name) error("usage: wt new <name>");
-    const wtPath = await createWorktree(repo!, name);
+    const result = await createWorktree(repo!, name);
+    await postCreateSetup(repo!, result.path, result.sourceDir);
     const date = new Date().toISOString().slice(0, 10);
-    output(`cd "${wtPath}"`, `${date}-${name}`);
+    output(`cd "${result.path}"`, `${date}-${name}`);
     return;
   }
 
   if (command === "checkout") {
     const branch = args[1];
     if (!branch) error("usage: wt checkout <branch>");
-    const wtPath = await checkoutWorktree(repo!, branch);
+    const result = await checkoutWorktree(repo!, branch);
+    await postCreateSetup(repo!, result.path, result.sourceDir);
     const branchName = branch.replace("origin/", "").replace("refs/heads/", "");
-    output(`cd "${wtPath}"`, branchName);
+    output(`cd "${result.path}"`, branchName);
     return;
   }
 
@@ -148,9 +151,10 @@ async function main() {
     output(`cd "${result.value}"`, wt?.name || repo!.name);
   } else if (result.type === "create" && result.value) {
     const name = result.value.replace(/\s+/g, "-");
-    const wtPath = await createWorktree(repo!, name);
+    const wtResult = await createWorktree(repo!, name);
+    await postCreateSetup(repo!, wtResult.path, wtResult.sourceDir);
     const date = new Date().toISOString().slice(0, 10);
-    output(`cd "${wtPath}"`, `${date}-${name}`);
+    output(`cd "${wtResult.path}"`, `${date}-${name}`);
   }
 }
 
