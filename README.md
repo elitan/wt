@@ -4,17 +4,10 @@ Git worktree manager for feature branches. Create isolated workspaces without th
 
 ## Install
 
-Requires [bun](https://bun.sh).
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/elitan/wt/main/install.sh | bash
-```
-
-Then add to `~/.zshrc` or `~/.bashrc`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-eval "$(wt init)"
+wt setup  # adds shell integration to ~/.zshrc or ~/.bashrc
+source ~/.zshrc  # or restart your terminal
 ```
 
 ## Usage
@@ -27,6 +20,7 @@ wt checkout <branch>  # Checkout existing remote branch
 wt rm [name]          # Remove worktree
 wt main               # Go to main repo
 wt list               # List all worktrees
+wt upgrade            # Upgrade to latest version
 ```
 
 ## How it works
@@ -73,8 +67,6 @@ wt rm auth-refactor
 git clone https://github.com/elitan/wt
 cd wt
 bun install
-bun link
-
-# test locally
-eval "$(bun src/index.ts init)"
+bun run build
+./wt-dev --help
 ```
