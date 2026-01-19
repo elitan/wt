@@ -2,10 +2,20 @@ import * as fs from "node:fs";
 import { input, confirm as inquirerConfirm, search } from "@inquirer/prompts";
 import type { Worktree } from "./git";
 
-const ttyInput = process.stdin.isTTY
-  ? process.stdin
-  : fs.createReadStream("/dev/tty");
-const ctx = { input: ttyInput, output: process.stderr };
+let _ctx: {
+  input: NodeJS.ReadableStream;
+  output: NodeJS.WritableStream;
+} | null = null;
+
+function getCtx() {
+  if (!_ctx) {
+    const ttyInput = process.stdin.isTTY
+      ? process.stdin
+      : fs.createReadStream("/dev/tty");
+    _ctx = { input: ttyInput, output: process.stderr };
+  }
+  return _ctx;
+}
 
 function fuzzyMatch(
   query: string,
@@ -90,7 +100,7 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
           default: initialQuery || undefined,
           validate: (v) => (v.length === 0 ? "Name required" : true),
         },
-        ctx,
+        getCtx(),
       );
       return { type: "create", value: name };
     } catch {
@@ -121,7 +131,7 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
           ];
         },
       },
-      ctx,
+      getCtx(),
     );
 
     if (selected === "__create__") {
@@ -131,7 +141,7 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
             message: "Worktree name",
             validate: (v) => (v.length === 0 ? "Name required" : true),
           },
-          ctx,
+          getCtx(),
         );
         return { type: "create", value: name };
       }
@@ -146,7 +156,7 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
 
 export async function confirm(message: string): Promise<boolean> {
   try {
-    return await inquirerConfirm({ message }, ctx);
+    return await inquirerConfirm({ message }, getCtx());
   } catch {
     return false;
   }
@@ -188,7 +198,7 @@ export async function deletePicker(
           }));
         },
       },
-      ctx,
+      getCtx(),
     );
 
     const wt = deletable.find((w) => w.path === selected);
