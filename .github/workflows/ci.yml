@@ -72,7 +72,7 @@ jobs:
         run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev new test-branch 2>&1 | grep -v "^cd "
 
       - name: Verify worktree created
-        run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev list | grep test-branch
+        run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev list 2>&1 | grep test-branch
 
       - name: Test rm with -y
         run: cd /tmp/test-repo && $GITHUB_WORKSPACE/wt-dev rm test-branch -y 2>&1 | grep "Removed"
