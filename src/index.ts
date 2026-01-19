@@ -13,7 +13,7 @@ import {
 import {
   checkGhCli,
   getIssueInfo,
-  getPrBranch,
+  getPrInfo,
   isGithubUrl,
   parseGithubUrl,
   slugify,
@@ -47,16 +47,22 @@ async function handleGithubUrl(repo: RepoInfo, url: string): Promise<void> {
   const { owner, repo: repoName, number } = parsed;
 
   if (parsed.type === "pr") {
-    const branch = await getPrBranch(owner, repoName, number);
+    const pr = await getPrInfo(owner, repoName, number);
+    if (pr.state === "MERGED") {
+      error(`PR #${number} was already merged`);
+    }
+    if (pr.state === "CLOSED") {
+      error(`PR #${number} was closed without merging`);
+    }
     const worktrees = await listWorktrees(repo);
-    const existing = worktrees.find((w) => w.branch === branch);
+    const existing = worktrees.find((w) => w.branch === pr.branch);
     if (existing) {
       output(`cd "${existing.path}"`, existing.name);
       return;
     }
-    const result = await checkoutWorktree(repo, `origin/${branch}`);
+    const result = await checkoutWorktree(repo, `origin/${pr.branch}`);
     await postCreateSetup(result.path, result.sourceDir);
-    output(`cd "${result.path}"`, branch);
+    output(`cd "${result.path}"`, pr.branch);
     return;
   }
 
