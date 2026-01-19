@@ -26,15 +26,13 @@ setup_test_repo() {
   log "Setting up test repo"
   mkdir -p "$TEST_DIR/origin.git" "$TEST_DIR/$REPO_NAME"
 
-  git config --global user.email "test@test.com" 2>/dev/null || true
-  git config --global user.name "Test" 2>/dev/null || true
-  git config --global init.defaultBranch main 2>/dev/null || true
-
   cd "$TEST_DIR/origin.git"
-  git init --bare -q
+  git init --bare -q -b main
 
   cd "$TEST_DIR/$REPO_NAME"
-  git init -q
+  git init -q -b main
+  git config user.email "test@test.com"
+  git config user.name "Test"
   echo "test" > README.md
   echo '{"name":"test"}' > package.json
   echo ".env" > .gitignore
