@@ -8,7 +8,6 @@ import {
   listWorktrees,
   type RepoInfo,
   removeWorktree,
-  validateBranchName,
 } from "./git";
 import {
   checkGhCli,
@@ -110,17 +109,16 @@ async function main() {
   }
 
   if (command === "new") {
-    const name = args.slice(1).join("-");
+    const name = args.slice(1).join(" ");
     if (!name) error("usage: wt new <name>");
     if (isGithubUrl(name)) {
       await handleGithubUrl(repo!, name);
       return;
     }
-    const validationError = validateBranchName(name);
-    if (validationError) error(validationError);
-    const result = await createWorktree(repo!, name);
+    const branchName = slugify(name);
+    const result = await createWorktree(repo!, branchName);
     await postCreateSetup(result.path, result.sourceDir);
-    output(`cd "${result.path}"`, name);
+    output(`cd "${result.path}"`, branchName);
     return;
   }
 
@@ -208,15 +206,10 @@ async function main() {
       output(`cd "${result.value}"`, wt?.name || repo!.name);
       break;
     } else if (result.type === "create" && result.value) {
-      const name = result.value.replace(/\s+/g, "-");
-      const validationError = validateBranchName(name);
-      if (validationError) {
-        console.error(`wt: ${validationError}`);
-        continue;
-      }
-      const wtResult = await createWorktree(repo!, name);
+      const branchName = slugify(result.value);
+      const wtResult = await createWorktree(repo!, branchName);
       await postCreateSetup(wtResult.path, wtResult.sourceDir);
-      output(`cd "${wtResult.path}"`, name);
+      output(`cd "${wtResult.path}"`, branchName);
       break;
     } else if (result.type === "delete" && result.value) {
       const wt = worktrees.find((w) => w.path === result.value);
