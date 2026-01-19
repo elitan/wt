@@ -1,0 +1,19 @@
+{
+  "name": "wt",
+  "version": "0.1.0",
+  "description": "Git worktree manager for feature branches",
+  "module": "src/index.ts",
+  "type": "module",
+  "bin": {
+    "wt": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
