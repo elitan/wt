@@ -9,7 +9,7 @@ function fuzzyMatch(
 ): { match: boolean; score: number } {
   if (!query) return { match: true, score: 0 };
 
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().replace(/\s+/g, "-");
   const t = text.toLowerCase();
 
   if (t.includes(q)) {
@@ -80,6 +80,16 @@ describe("fuzzyMatch", () => {
     const consecutive = fuzzyMatch("feat", "feature");
     const scattered = fuzzyMatch("ftre", "feature");
     expect(consecutive.score).toBeGreaterThan(scattered.score);
+  });
+
+  test("spaces treated as hyphens", () => {
+    const result = fuzzyMatch("dark mode", "feat/dark-mode");
+    expect(result.match).toBe(true);
+  });
+
+  test("multiple spaces normalized", () => {
+    const result = fuzzyMatch("dark   mode", "dark-mode");
+    expect(result.match).toBe(true);
   });
 });
 

@@ -204,7 +204,7 @@ function fuzzyMatch(
 ): { match: boolean; score: number } {
   if (!query) return { match: true, score: 0 };
 
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().replace(/\s+/g, "-");
   const t = text.toLowerCase();
 
   if (t.includes(q)) {
