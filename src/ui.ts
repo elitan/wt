@@ -1,29 +1,5 @@
+import * as p from "@clack/prompts";
 import type { Worktree } from "./git";
-
-const ESC = "\x1b";
-const CSI = `${ESC}[`;
-
-const cursor = {
-  hide: () => process.stdout.write(`${CSI}?25l`),
-  show: () => process.stdout.write(`${CSI}?25h`),
-  moveTo: (row: number, col: number) => process.stdout.write(`${CSI}${row};${col}H`),
-};
-
-const screen = {
-  clear: () => process.stdout.write(`${CSI}2J`),
-  clearLine: () => process.stdout.write(`${CSI}2K`),
-};
-
-const style = {
-  reset: `${CSI}0m`,
-  bold: `${CSI}1m`,
-  dim: `${CSI}2m`,
-  cyan: `${CSI}36m`,
-  yellow: `${CSI}33m`,
-  green: `${CSI}32m`,
-  magenta: `${CSI}35m`,
-  inverse: `${CSI}7m`,
-};
 
 function fuzzyMatch(query: string, text: string): { match: boolean; score: number } {
   if (!query) return { match: true, score: 0 };
@@ -49,25 +25,21 @@ function fuzzyMatch(query: string, text: string): { match: boolean; score: numbe
     }
   }
 
-  if (qi === q.length) {
-    return { match: true, score };
-  }
-
+  if (qi === q.length) return { match: true, score };
   return { match: false, score: 0 };
 }
 
 function formatAge(date?: Date): string {
   if (!date) return "";
-  const now = Date.now();
-  const diff = now - date.getTime();
+  const diff = Date.now() - date.getTime();
   const mins = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (mins < 60) return `${mins}m`;
-  if (hours < 24) return `${hours}h`;
-  if (days < 7) return `${days}d`;
-  return `${Math.floor(days / 7)}w`;
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
 }
 
 interface PickerResult {
@@ -83,152 +55,109 @@ interface PickerOptions {
 
 export async function picker(options: PickerOptions): Promise<PickerResult> {
   const { repoName, worktrees, initialQuery = "" } = options;
-  let query = initialQuery;
-  let selectedIndex = 0;
 
-  function getFiltered(): Array<{ wt: Worktree; score: number }> {
-    return worktrees
-      .map((wt) => ({ wt, ...fuzzyMatch(query, wt.name) }))
+  p.intro(`wt › ${repoName}`);
+
+  if (initialQuery) {
+    const matches = worktrees
+      .map((wt) => ({ wt, ...fuzzyMatch(initialQuery, wt.name) }))
       .filter((x) => x.match)
       .sort((a, b) => b.score - a.score);
+
+    if (matches.length === 1) {
+      p.outro(`→ ${matches[0].wt.name}`);
+      return { type: "select", value: matches[0].wt.path };
+    }
+
+    if (matches.length > 1) {
+      const selected = await p.select({
+        message: `Found ${matches.length} matches for "${initialQuery}"`,
+        options: [
+          ...matches.map((m) => ({
+            value: m.wt.path,
+            label: m.wt.name,
+            hint: formatAge(m.wt.createdAt),
+          })),
+          { value: "__create__", label: `+ Create "${initialQuery}"` },
+        ],
+      });
+
+      if (p.isCancel(selected)) {
+        p.cancel("Cancelled");
+        return { type: "cancel" };
+      }
+
+      if (selected === "__create__") {
+        return { type: "create", value: initialQuery };
+      }
+
+      return { type: "select", value: selected as string };
+    }
+
+    const shouldCreate = await p.confirm({
+      message: `No matches. Create "${initialQuery}"?`,
+    });
+
+    if (p.isCancel(shouldCreate) || !shouldCreate) {
+      p.cancel("Cancelled");
+      return { type: "cancel" };
+    }
+
+    return { type: "create", value: initialQuery };
   }
 
-  function render() {
-    const filtered = getFiltered();
-    const showCreate = query.length > 0;
-    const totalItems = filtered.length + (showCreate ? 1 : 0);
+  if (worktrees.length === 0) {
+    const name = await p.text({
+      message: "Create your first worktree",
+      placeholder: "feature-name",
+      validate: (v) => (v.length === 0 ? "Name required" : undefined),
+    });
 
-    if (selectedIndex >= totalItems) selectedIndex = Math.max(0, totalItems - 1);
-
-    cursor.moveTo(1, 1);
-    screen.clearLine();
-    process.stdout.write(`${style.dim}wt${style.reset} ${style.bold}${repoName}${style.reset}\n`);
-    screen.clearLine();
-    process.stdout.write("\n");
-
-    screen.clearLine();
-    const placeholder = query ? "" : `${style.dim}search or create worktree...${style.reset}`;
-    const input = query || placeholder;
-    process.stdout.write(`${style.cyan}❯${style.reset} ${input}${query ? `${style.dim}▌${style.reset}` : ""}\n`);
-
-    const maxRows = Math.min(10, totalItems);
-
-    for (let i = 0; i < maxRows; i++) {
-      screen.clearLine();
-
-      if (i < filtered.length) {
-        const { wt } = filtered[i];
-        const isSelected = i === selectedIndex;
-        const prefix = isSelected ? `${style.cyan}→${style.reset}` : " ";
-        const name = isSelected ? `${style.bold}${wt.name}${style.reset}` : wt.name;
-        const age = formatAge(wt.createdAt);
-        const branch = `${style.dim}${wt.branch}${style.reset}`;
-        const ageStr = age ? `${style.yellow}${age}${style.reset}` : "";
-
-        process.stdout.write(`${prefix} ${name} ${branch} ${ageStr}\n`);
-      } else if (showCreate && i === filtered.length) {
-        const isSelected = i === selectedIndex;
-        const prefix = isSelected ? `${style.cyan}→${style.reset}` : " ";
-        const text = isSelected
-          ? `${style.green}+ Create new: ${query}${style.reset}`
-          : `${style.dim}+ Create new: ${query}${style.reset}`;
-        process.stdout.write(`${prefix} ${text}\n`);
-      } else {
-        process.stdout.write("\n");
-      }
+    if (p.isCancel(name)) {
+      p.cancel("Cancelled");
+      return { type: "cancel" };
     }
 
-    for (let i = maxRows; i < 10; i++) {
-      screen.clearLine();
-      process.stdout.write("\n");
-    }
-
-    screen.clearLine();
-    process.stdout.write(`\n${style.dim}↑↓ navigate · enter select · esc cancel${style.reset}`);
+    return { type: "create", value: name as string };
   }
 
-  return new Promise((resolve) => {
-    cursor.hide();
-    screen.clear();
-    cursor.moveTo(1, 1);
-    render();
-
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-
-    function cleanup() {
-      process.stdin.setRawMode(false);
-      process.stdin.pause();
-      process.stdin.removeListener("data", onData);
-      cursor.show();
-      screen.clear();
-      cursor.moveTo(1, 1);
-    }
-
-    function onData(data: Buffer) {
-      const key = data.toString();
-      const filtered = getFiltered();
-      const showCreate = query.length > 0;
-      const totalItems = filtered.length + (showCreate ? 1 : 0);
-
-      if (key === "\x03" || key === "\x1b") {
-        cleanup();
-        resolve({ type: "cancel" });
-        return;
-      }
-
-      if (key === "\r") {
-        cleanup();
-        if (selectedIndex < filtered.length) {
-          resolve({ type: "select", value: filtered[selectedIndex].wt.path });
-        } else if (showCreate) {
-          resolve({ type: "create", value: query });
-        } else {
-          resolve({ type: "cancel" });
-        }
-        return;
-      }
-
-      if (key === "\x1b[A" || key === "\x10") {
-        selectedIndex = Math.max(0, selectedIndex - 1);
-      } else if (key === "\x1b[B" || key === "\x0e") {
-        selectedIndex = Math.min(totalItems - 1, selectedIndex + 1);
-      } else if (key === "\x7f") {
-        query = query.slice(0, -1);
-        selectedIndex = 0;
-      } else if (key.length === 1 && key >= " " && key <= "~") {
-        query += key;
-        selectedIndex = 0;
-      }
-
-      render();
-    }
-
-    process.stdin.on("data", onData);
+  const selected = await p.select({
+    message: "Select worktree",
+    options: [
+      ...worktrees.map((wt) => ({
+        value: wt.path,
+        label: wt.name,
+        hint: formatAge(wt.createdAt),
+      })),
+      { value: "__create__", label: "+ Create new worktree" },
+    ],
   });
+
+  if (p.isCancel(selected)) {
+    p.cancel("Cancelled");
+    return { type: "cancel" };
+  }
+
+  if (selected === "__create__") {
+    const name = await p.text({
+      message: "Worktree name",
+      placeholder: "feature-name",
+      validate: (v) => (v.length === 0 ? "Name required" : undefined),
+    });
+
+    if (p.isCancel(name)) {
+      p.cancel("Cancelled");
+      return { type: "cancel" };
+    }
+
+    return { type: "create", value: name as string };
+  }
+
+  return { type: "select", value: selected as string };
 }
 
 export async function confirm(message: string): Promise<boolean> {
-  process.stdout.write(`${message} ${style.dim}[y/N]${style.reset} `);
-
-  if (!process.stdin.isTTY) {
-    process.stdout.write("\n");
-    return false;
-  }
-
-  return new Promise((resolve) => {
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-
-    function onData(data: Buffer) {
-      const key = data.toString().toLowerCase();
-      process.stdin.setRawMode(false);
-      process.stdin.pause();
-      process.stdin.removeListener("data", onData);
-      process.stdout.write("\n");
-      resolve(key === "y");
-    }
-
-    process.stdin.on("data", onData);
-  });
+  const result = await p.confirm({ message });
+  if (p.isCancel(result)) return false;
+  return result;
 }
