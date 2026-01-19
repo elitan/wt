@@ -123,10 +123,8 @@ export async function createWorktree(
   repo: RepoInfo,
   name: string,
 ): Promise<WorktreeResult> {
-  const date = new Date().toISOString().slice(0, 10);
-  const fullName = `${date}-${name}`;
-  const wtPath = join(repo.wtDir, fullName);
-  const branchName = fullName;
+  const wtPath = join(repo.wtDir, name);
+  const branchName = name;
 
   await $`mkdir -p ${repo.wtDir}`;
 
@@ -177,4 +175,29 @@ export async function getMainRepoPath(): Promise<string | null> {
 
   const repo = await getRepoInfo();
   return repo?.root ?? null;
+}
+
+function hasControlChars(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
+export function validateBranchName(name: string): string | null {
+  if (!name) return "branch name cannot be empty";
+  if (name.startsWith(".")) return "branch name cannot start with '.'";
+  if (name.startsWith("-")) return "branch name cannot start with '-'";
+  if (name.endsWith("/")) return "branch name cannot end with '/'";
+  if (name.endsWith(".lock")) return "branch name cannot end with '.lock'";
+  if (name.includes("..")) return "branch name cannot contain '..'";
+  if (name.includes("@{")) return "branch name cannot contain '@{'";
+  if (/[\s~^:?*[\]\\]/.test(name)) {
+    return "branch name contains invalid characters";
+  }
+  if (hasControlChars(name)) {
+    return "branch name cannot contain control characters";
+  }
+  return null;
 }
