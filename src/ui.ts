@@ -1,6 +1,187 @@
 import * as fs from "node:fs";
-import { input, confirm as inquirerConfirm, search } from "@inquirer/prompts";
+import {
+  createPrompt,
+  isBackspaceKey,
+  isDownKey,
+  isEnterKey,
+  isUpKey,
+  makeTheme,
+  type Status,
+  useKeypress,
+  useMemo,
+  usePrefix,
+  useState,
+} from "@inquirer/core";
+import { input, confirm as inquirerConfirm } from "@inquirer/prompts";
 import type { Worktree } from "./git";
+
+interface Choice {
+  name: string;
+  value: string;
+  description?: string;
+  canDelete?: boolean;
+}
+
+interface PickerPromptResult {
+  action: "select" | "delete" | "create";
+  value: string;
+}
+
+interface PickerPromptConfig {
+  message: string;
+  source: (term: string) => Choice[];
+}
+
+const CYAN = "\x1b[36m";
+const DIM = "\x1b[90m";
+const RESET = "\x1b[0m";
+const HIDE_CURSOR = "\x1b[?25l";
+
+type Key = { name?: string; ctrl?: boolean; shift?: boolean };
+
+function isNextKey(key: Key): boolean {
+  return (
+    isDownKey(key as Parameters<typeof isDownKey>[0]) ||
+    (key.name === "tab" && !key.shift)
+  );
+}
+
+function isPrevKey(key: Key): boolean {
+  return (
+    isUpKey(key as Parameters<typeof isUpKey>[0]) ||
+    Boolean(key.name === "tab" && key.shift)
+  );
+}
+
+function wrapIndex(idx: number, delta: number, length: number): number {
+  return (idx + delta + length) % length;
+}
+
+function renderChoices(
+  choices: Choice[],
+  active: number,
+  showDesc = true,
+): string[] {
+  return choices.map((c, i) => {
+    const isActive = i === active;
+    const ptr = isActive ? `${CYAN}❯${RESET}` : " ";
+    const name = isActive ? `${CYAN}${c.name}${RESET}` : c.name;
+    const desc =
+      showDesc && c.description ? ` ${DIM}${c.description}${RESET}` : "";
+    return `${ptr} ${name}${desc}`;
+  });
+}
+
+const simpleSearch = createPrompt<
+  string,
+  { message: string; source: (term: string) => Choice[] }
+>((config, done) => {
+  const theme = makeTheme({});
+  const prefix = usePrefix({ status: "idle" as Status, theme });
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const choices = useMemo(() => config.source(query), [query, config.source]);
+
+  useKeypress((key, rl) => {
+    if (isEnterKey(key)) {
+      const choice = choices[active];
+      if (choice) done(choice.value);
+    } else if (isNextKey(key)) {
+      setActive(wrapIndex(active, 1, choices.length));
+    } else if (isPrevKey(key)) {
+      setActive(wrapIndex(active, -1, choices.length));
+    } else {
+      setQuery(rl.line);
+      setActive(0);
+    }
+  });
+
+  const lines = [
+    `${prefix} ${config.message}${query}`,
+    ...renderChoices(choices, active),
+  ];
+  return HIDE_CURSOR + lines.join("\n");
+});
+
+function isBackKey(key: Key): boolean {
+  return (
+    isBackspaceKey(key as Parameters<typeof isBackspaceKey>[0]) ||
+    key.name === "left" ||
+    key.name === "escape"
+  );
+}
+
+function getActions(canDelete: boolean): Choice[] {
+  const actions: Choice[] = [{ name: "Open", value: "open" }];
+  if (canDelete) actions.push({ name: "Delete", value: "delete" });
+  return actions;
+}
+
+const pickerPrompt = createPrompt<PickerPromptResult, PickerPromptConfig>(
+  (config, done) => {
+    const theme = makeTheme({});
+    const prefix = usePrefix({ status: "idle" as Status, theme });
+    const [query, setQuery] = useState("");
+    const [active, setActive] = useState(0);
+    const [mode, setMode] = useState<"search" | "action">("search");
+    const [selected, setSelected] = useState<Choice | null>(null);
+    const [actionIdx, setActionIdx] = useState(0);
+
+    const choices = useMemo(() => config.source(query), [query, config.source]);
+    const actions = getActions(selected?.canDelete ?? false);
+
+    useKeypress((key, rl) => {
+      if (mode === "search") {
+        if (isEnterKey(key)) {
+          const choice = choices[active];
+          if (choice) {
+            if (choice.value === "__create__") {
+              done({ action: "create", value: query });
+            } else {
+              setSelected(choice);
+              setActionIdx(0);
+              setMode("action");
+            }
+          }
+        } else if (isNextKey(key)) {
+          setActive(wrapIndex(active, 1, choices.length));
+        } else if (isPrevKey(key)) {
+          setActive(wrapIndex(active, -1, choices.length));
+        } else {
+          setQuery(rl.line);
+          setActive(0);
+        }
+      } else {
+        if (isEnterKey(key)) {
+          const action =
+            actions[actionIdx]?.value === "delete" ? "delete" : "select";
+          done({ action, value: selected!.value });
+        } else if (isBackKey(key)) {
+          setMode("search");
+        } else if (isNextKey(key)) {
+          setActionIdx(wrapIndex(actionIdx, 1, actions.length));
+        } else if (isPrevKey(key)) {
+          setActionIdx(wrapIndex(actionIdx, -1, actions.length));
+        }
+      }
+    });
+
+    let lines: string[];
+    if (mode === "search") {
+      lines = [
+        `${prefix} ${config.message}${query}`,
+        ...renderChoices(choices, active),
+      ];
+    } else {
+      lines = [
+        `${prefix} ${selected?.name}  ${DIM}(←/backspace: back)${RESET}`,
+        ...renderChoices(actions, actionIdx, false),
+      ];
+    }
+
+    return HIDE_CURSOR + lines.join("\n");
+  },
+);
 
 let _ctx: {
   input: NodeJS.ReadableStream;
@@ -62,7 +243,7 @@ function formatAge(date?: Date): string {
 }
 
 interface PickerResult {
-  type: "select" | "create" | "cancel";
+  type: "select" | "create" | "cancel" | "delete";
   value?: string;
 }
 
@@ -109,14 +290,11 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
   }
 
   try {
-    let lastTerm = initialQuery;
-
-    const selected = await search(
+    const result = await pickerPrompt(
       {
         message: `wt › ${repoName} / `,
-        source: async (term) => {
-          const searchTerm = term ?? initialQuery;
-          lastTerm = searchTerm;
+        source: (term) => {
+          const searchTerm = term || initialQuery;
           const filtered = fuzzyFilter(worktrees, searchTerm);
           const createLabel = searchTerm
             ? `+ Create "${searchTerm}"`
@@ -126,16 +304,17 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
               name: m.wt.name,
               value: m.wt.path,
               description: formatAge(m.wt.createdAt),
+              canDelete: m.wt.name !== "main",
             })),
-            { name: createLabel, value: "__create__", description: "" },
+            { name: createLabel, value: "__create__" },
           ];
         },
       },
       getCtx(),
     );
 
-    if (selected === "__create__") {
-      if (!lastTerm) {
+    if (result.action === "create") {
+      if (!result.value) {
         const name = await input(
           {
             message: "Worktree name",
@@ -145,10 +324,14 @@ export async function picker(options: PickerOptions): Promise<PickerResult> {
         );
         return { type: "create", value: name };
       }
-      return { type: "create", value: lastTerm };
+      return { type: "create", value: result.value };
     }
 
-    return { type: "select", value: selected };
+    if (result.action === "delete") {
+      return { type: "delete", value: result.value };
+    }
+
+    return { type: "select", value: result.value };
   } catch {
     return { type: "cancel" };
   }
@@ -185,11 +368,11 @@ export async function deletePicker(
   const initialQuery = currentWt?.name || "";
 
   try {
-    const selected = await search(
+    const selected = await simpleSearch(
       {
         message: `wt rm › ${repoName} / `,
-        source: async (term) => {
-          const searchTerm = term ?? initialQuery;
+        source: (term) => {
+          const searchTerm = term || initialQuery;
           const filtered = fuzzyFilter(deletable, searchTerm);
           return filtered.map((m) => ({
             name: m.wt.name,

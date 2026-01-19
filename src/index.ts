@@ -134,27 +134,48 @@ async function main() {
     return;
   }
 
-  const worktrees = await listWorktrees(repo!);
   const initialQuery = args.join(" ");
   const cwd = process.cwd();
-  const currentWt = worktrees.find(
-    (w) => cwd.startsWith(w.path) && w.name !== "main",
-  );
-  const result = await picker({
-    repoName: repo!.name,
-    worktrees,
-    initialQuery: initialQuery || currentWt?.name || "",
-  });
 
-  if (result.type === "select" && result.value) {
-    const wt = worktrees.find((w) => w.path === result.value);
-    output(`cd "${result.value}"`, wt?.name || repo!.name);
-  } else if (result.type === "create" && result.value) {
-    const name = result.value.replace(/\s+/g, "-");
-    const wtResult = await createWorktree(repo!, name);
-    await postCreateSetup(wtResult.path, wtResult.sourceDir);
-    const date = new Date().toISOString().slice(0, 10);
-    output(`cd "${wtResult.path}"`, `${date}-${name}`);
+  let worktrees = await listWorktrees(repo!);
+
+  while (true) {
+    const currentWt = worktrees.find(
+      (w) => cwd.startsWith(w.path) && w.name !== "main",
+    );
+    const result = await picker({
+      repoName: repo!.name,
+      worktrees,
+      initialQuery: initialQuery || currentWt?.name || "",
+    });
+
+    if (result.type === "select" && result.value) {
+      const wt = worktrees.find((w) => w.path === result.value);
+      output(`cd "${result.value}"`, wt?.name || repo!.name);
+      break;
+    } else if (result.type === "create" && result.value) {
+      const name = result.value.replace(/\s+/g, "-");
+      const wtResult = await createWorktree(repo!, name);
+      await postCreateSetup(wtResult.path, wtResult.sourceDir);
+      const date = new Date().toISOString().slice(0, 10);
+      output(`cd "${wtResult.path}"`, `${date}-${name}`);
+      break;
+    } else if (result.type === "delete" && result.value) {
+      const wt = worktrees.find((w) => w.path === result.value);
+      if (wt && wt.name !== "main") {
+        if (await confirm(`Delete ${wt.name}?`)) {
+          await removeWorktree(repo!, wt.path);
+          console.error(`Removed ${wt.name}`);
+          if (cwd.startsWith(wt.path)) {
+            output(`cd "${repo!.root}"`, repo!.name);
+            break;
+          }
+          worktrees = await listWorktrees(repo!);
+        }
+      }
+    } else {
+      break;
+    }
   }
 }
 
