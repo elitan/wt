@@ -48,14 +48,19 @@ export async function getIssueInfo(
   return { title: output.title, number };
 }
 
-export async function getPrBranch(
+export interface PrInfo {
+  branch: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+}
+
+export async function getPrInfo(
   owner: string,
   repo: string,
   number: number,
-): Promise<string> {
+): Promise<PrInfo> {
   const output =
-    await $`gh pr view ${number} --repo ${owner}/${repo} --json headRefName`.json();
-  return output.headRefName;
+    await $`gh pr view ${number} --repo ${owner}/${repo} --json headRefName,state`.json();
+  return { branch: output.headRefName, state: output.state };
 }
 
 export function slugify(title: string): string {
