@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { $ } from "bun";
+import { spinner } from "./ui";
 
 const EXCLUDED_DIRS = new Set([
   "node_modules",
@@ -45,17 +46,21 @@ export async function detectPackageManager(
 }
 
 async function runInstall(dir: string, pm: PackageManager): Promise<void> {
-  console.error(`Running ${pm} install...`);
+  const s = spinner(`Running ${pm} install...`);
   try {
     const proc = Bun.spawn([pm, "install"], {
       cwd: dir,
-      stdout: "inherit",
-      stderr: "inherit",
+      stdout: "ignore",
+      stderr: "ignore",
     });
     await proc.exited;
-    if (proc.exitCode !== 0) throw new Error("install failed");
+    if (proc.exitCode !== 0) {
+      s.stop(`Warning: ${pm} install failed`);
+      return;
+    }
+    s.stop();
   } catch {
-    console.error(`Warning: ${pm} install failed`);
+    s.stop(`Warning: ${pm} install failed`);
   }
 }
 

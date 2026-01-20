@@ -36,6 +36,39 @@ const CYAN = "\x1b[36m";
 const DIM = "\x1b[90m";
 const RESET = "\x1b[0m";
 const HIDE_CURSOR = "\x1b[?25l";
+const SHOW_CURSOR = "\x1b[?25h";
+const CLEAR_LINE = "\x1b[2K\r";
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+export interface Spinner {
+  update: (msg: string) => void;
+  stop: (msg?: string) => void;
+}
+
+export function spinner(message: string): Spinner {
+  let frame = 0;
+  let currentMsg = message;
+  process.stderr.write(HIDE_CURSOR);
+
+  const interval = setInterval(() => {
+    process.stderr.write(
+      `${CLEAR_LINE}${CYAN}${SPINNER_FRAMES[frame]}${RESET} ${currentMsg}`,
+    );
+    frame = (frame + 1) % SPINNER_FRAMES.length;
+  }, 80);
+
+  return {
+    update(msg: string) {
+      currentMsg = msg;
+    },
+    stop(msg?: string) {
+      clearInterval(interval);
+      process.stderr.write(CLEAR_LINE + SHOW_CURSOR);
+      if (msg) console.error(msg);
+    },
+  };
+}
 
 type Key = { name?: string; ctrl?: boolean; shift?: boolean };
 
@@ -198,7 +231,7 @@ function getCtx() {
   return _ctx;
 }
 
-function fuzzyMatch(
+export function fuzzyMatch(
   query: string,
   text: string,
 ): { match: boolean; score: number } {

@@ -1,38 +1,5 @@
 import { describe, expect, test } from "bun:test";
-
-// Extract testable functions - we'll need to export these
-// For now, let's recreate the fuzzy logic to test it
-
-function fuzzyMatch(
-  query: string,
-  text: string,
-): { match: boolean; score: number } {
-  if (!query) return { match: true, score: 0 };
-
-  const q = query.toLowerCase().replace(/\s+/g, "-");
-  const t = text.toLowerCase();
-
-  if (t.includes(q)) {
-    const pos = t.indexOf(q);
-    return { match: true, score: 100 - pos + (q.length / t.length) * 50 };
-  }
-
-  let qi = 0;
-  let score = 0;
-  let lastMatchPos = -1;
-
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      score += 10;
-      if (lastMatchPos === ti - 1) score += 5;
-      lastMatchPos = ti;
-      qi++;
-    }
-  }
-
-  if (qi === q.length) return { match: true, score };
-  return { match: false, score: 0 };
-}
+import { fuzzyMatch } from "./ui";
 
 interface Worktree {
   name: string;

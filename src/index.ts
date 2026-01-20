@@ -3,6 +3,7 @@
 import {
   checkoutWorktree,
   createWorktree,
+  getCurrentBranch,
   getMainRepoPath,
   getRepoInfo,
   listWorktrees,
@@ -53,6 +54,11 @@ async function handleGithubUrl(repo: RepoInfo, url: string): Promise<void> {
     if (pr.state === "CLOSED") {
       error(`PR #${number} was closed without merging`);
     }
+    const currentBranch = await getCurrentBranch(repo.root);
+    if (currentBranch === pr.branch) {
+      output(`cd "${repo.root}"`, pr.branch);
+      return;
+    }
     const worktrees = await listWorktrees(repo);
     const existing = worktrees.find((w) => w.branch === pr.branch);
     if (existing) {
@@ -98,13 +104,14 @@ async function main() {
     return;
   }
 
-  const repo = await getRepoInfo();
-  if (!repo) {
+  const repoOrNull = await getRepoInfo();
+  if (!repoOrNull) {
     error("not in a git repository");
   }
+  const repo = repoOrNull;
 
   if (command && isGithubUrl(command)) {
-    await handleGithubUrl(repo!, command);
+    await handleGithubUrl(repo, command);
     return;
   }
 
@@ -112,11 +119,11 @@ async function main() {
     const name = args.slice(1).join(" ");
     if (!name) error("usage: wt new <name>");
     if (isGithubUrl(name)) {
-      await handleGithubUrl(repo!, name);
+      await handleGithubUrl(repo, name);
       return;
     }
     const branchName = slugify(name);
-    const result = await createWorktree(repo!, branchName);
+    const result = await createWorktree(repo, branchName);
     await postCreateSetup(result.path, result.sourceDir);
     output(`cd "${result.path}"`, branchName);
     return;
@@ -125,7 +132,7 @@ async function main() {
   if (command === "checkout") {
     const branch = args[1];
     if (!branch) error("usage: wt checkout <branch>");
-    const result = await checkoutWorktree(repo!, branch);
+    const result = await checkoutWorktree(repo, branch);
     await postCreateSetup(result.path, result.sourceDir);
     const branchName = branch.replace("origin/", "").replace("refs/heads/", "");
     output(`cd "${result.path}"`, branchName);
@@ -136,7 +143,7 @@ async function main() {
     const rmArgs = args.slice(1);
     const skipConfirm = rmArgs.includes("-y") || rmArgs.includes("--yes");
     const name = rmArgs.find((a) => a !== "-y" && a !== "--yes");
-    const worktrees = await listWorktrees(repo!);
+    const worktrees = await listWorktrees(repo);
     const cwd = process.cwd();
 
     if (name) {
@@ -144,28 +151,28 @@ async function main() {
         (w) => w.name === name || w.name.includes(name),
       );
       if (!wt) error(`worktree not found: ${name}`);
-      if (wt!.name === "main") error("cannot delete main repo");
-      if (skipConfirm || (await confirm(`Remove ${wt!.name}?`))) {
-        await removeWorktree(repo!, wt!.path);
-        console.error(`Removed ${wt!.name}`);
-        if (cwd.startsWith(wt!.path)) {
-          output(`cd "${repo!.root}"`, repo!.name);
+      if (wt.name === "main") error("cannot delete main repo");
+      if (skipConfirm || (await confirm(`Remove ${wt.name}?`))) {
+        await removeWorktree(repo, wt.path);
+        console.error(`Removed ${wt.name}`);
+        if (cwd.startsWith(wt.path)) {
+          output(`cd "${repo.root}"`, repo.name);
         }
       }
       return;
     }
 
     const wt = await deletePicker({
-      repoName: repo!.name,
+      repoName: repo.name,
       worktrees,
       currentPath: cwd,
     });
 
     if (wt) {
-      await removeWorktree(repo!, wt.path);
+      await removeWorktree(repo, wt.path);
       console.error(`Removed ${wt.name}`);
       if (cwd.startsWith(wt.path)) {
-        output(`cd "${repo!.root}"`, repo!.name);
+        output(`cd "${repo.root}"`, repo.name);
       }
     }
     return;
@@ -173,13 +180,13 @@ async function main() {
 
   if (command === "main") {
     const mainPath = await getMainRepoPath();
-    if (mainPath) output(`cd "${mainPath}"`, repo!.name);
+    if (mainPath) output(`cd "${mainPath}"`, repo.name);
     else error("could not find main repo");
     return;
   }
 
   if (command === "list") {
-    const worktrees = await listWorktrees(repo!);
+    const worktrees = await listWorktrees(repo);
     for (const wt of worktrees) {
       console.error(`${wt.name} (${wt.branch})`);
     }
@@ -189,25 +196,25 @@ async function main() {
   const initialQuery = args.join(" ");
   const cwd = process.cwd();
 
-  let worktrees = await listWorktrees(repo!);
+  let worktrees = await listWorktrees(repo);
 
   while (true) {
     const currentWt = worktrees.find(
       (w) => cwd.startsWith(w.path) && w.name !== "main",
     );
     const result = await picker({
-      repoName: repo!.name,
+      repoName: repo.name,
       worktrees,
       initialQuery: initialQuery || currentWt?.name || "",
     });
 
     if (result.type === "select" && result.value) {
       const wt = worktrees.find((w) => w.path === result.value);
-      output(`cd "${result.value}"`, wt?.name || repo!.name);
+      output(`cd "${result.value}"`, wt?.name || repo.name);
       break;
     } else if (result.type === "create" && result.value) {
       const branchName = slugify(result.value);
-      const wtResult = await createWorktree(repo!, branchName);
+      const wtResult = await createWorktree(repo, branchName);
       await postCreateSetup(wtResult.path, wtResult.sourceDir);
       output(`cd "${wtResult.path}"`, branchName);
       break;
@@ -215,13 +222,13 @@ async function main() {
       const wt = worktrees.find((w) => w.path === result.value);
       if (wt && wt.name !== "main") {
         if (await confirm(`Delete ${wt.name}?`)) {
-          await removeWorktree(repo!, wt.path);
+          await removeWorktree(repo, wt.path);
           console.error(`Removed ${wt.name}`);
           if (cwd.startsWith(wt.path)) {
-            output(`cd "${repo!.root}"`, repo!.name);
+            output(`cd "${repo.root}"`, repo.name);
             break;
           }
-          worktrees = await listWorktrees(repo!);
+          worktrees = await listWorktrees(repo);
         }
       }
     } else {
