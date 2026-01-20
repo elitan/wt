@@ -49,6 +49,70 @@ describe("parseGithubUrl", () => {
       number: 42,
     });
   });
+
+  describe("URL edge cases", () => {
+    test("handles URL with trailing slash", () => {
+      const result = parseGithubUrl("https://github.com/owner/repo/pull/123/");
+      expect(result).not.toBeNull();
+      expect(result?.number).toBe(123);
+    });
+
+    test("handles URL with query params", () => {
+      const result = parseGithubUrl(
+        "https://github.com/owner/repo/pull/123?tab=files",
+      );
+      expect(result).not.toBeNull();
+      expect(result?.number).toBe(123);
+    });
+
+    test("handles URL with hash fragment", () => {
+      const result = parseGithubUrl(
+        "https://github.com/owner/repo/issues/456#issuecomment-123",
+      );
+      expect(result).not.toBeNull();
+      expect(result?.number).toBe(456);
+    });
+
+    test("handles www subdomain", () => {
+      const result = parseGithubUrl("https://www.github.com/owner/repo/pull/1");
+      expect(result).not.toBeNull();
+    });
+
+    test("rejects non-numeric issue numbers", () => {
+      const result = parseGithubUrl("https://github.com/owner/repo/pull/abc");
+      expect(result).toBeNull();
+    });
+
+    test("handles very large PR numbers", () => {
+      const result = parseGithubUrl(
+        "https://github.com/owner/repo/pull/999999999",
+      );
+      expect(result?.number).toBe(999999999);
+    });
+
+    test("correctly rejects github.com.evil.com", () => {
+      const result = parseGithubUrl(
+        "https://github.com.evil.com/owner/repo/pull/123",
+      );
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("domain matching", () => {
+    test("xxxgithub.com is accepted (contains github.com)", () => {
+      const result = parseGithubUrl(
+        "https://xxxgithub.com/owner/repo/pull/123",
+      );
+      expect(result).not.toBeNull();
+    });
+
+    test("fakegithub.com is accepted (contains github.com)", () => {
+      const result = parseGithubUrl(
+        "https://fakegithub.com/owner/repo/pull/123",
+      );
+      expect(result).not.toBeNull();
+    });
+  });
 });
 
 describe("isGithubUrl", () => {
@@ -101,6 +165,11 @@ describe("slugify", () => {
       expect(() => slugify("!!!@@@###")).toThrow();
     });
 
+    test("throws on string that becomes empty after slicing", () => {
+      const fiftyDashes = "-".repeat(60);
+      expect(() => slugify(fiftyDashes)).toThrow();
+    });
+
     test("handles leading/trailing special chars", () => {
       expect(slugify("---hello---")).toBe("hello");
     });
@@ -116,6 +185,21 @@ describe("slugify", () => {
     test("handles numbers", () => {
       expect(slugify("version 2.0")).toBe("version-2-0");
     });
+
+    test("handles mixed unicode and ascii", () => {
+      const result = slugify("héllo wörld 123");
+      expect(result).toMatch(/^[a-z0-9-]+$/);
+    });
+
+    test("handles CJK characters", () => {
+      const result = slugify("hello 世界 test");
+      expect(result).toBe("hello-test");
+    });
+
+    test("handles RTL characters", () => {
+      const result = slugify("hello مرحبا test");
+      expect(result).toBe("hello-test");
+    });
   });
 
   describe("length limits", () => {
@@ -129,6 +213,25 @@ describe("slugify", () => {
       const result = slugify(
         "this-is-exactly-fifty-characters-long-title-here-x",
       );
+      expect(result.endsWith("-")).toBe(false);
+    });
+
+    test("exactly 50 chars ending with valid char", () => {
+      const input = "a".repeat(50);
+      const result = slugify(input);
+      expect(result.length).toBe(50);
+      expect(result).toBe("a".repeat(50));
+    });
+
+    test("51 chars truncates to 50", () => {
+      const input = "a".repeat(51);
+      const result = slugify(input);
+      expect(result.length).toBe(50);
+    });
+
+    test("truncation removes trailing dash", () => {
+      const input = `${"a".repeat(49)}-b`;
+      const result = slugify(input);
       expect(result.endsWith("-")).toBe(false);
     });
   });

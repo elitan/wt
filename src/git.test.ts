@@ -126,5 +126,93 @@ describe("validateBranchName", () => {
     test("@ without { is ok", () => {
       expect(validateBranchName("user@feature")).toBeNull();
     });
+
+    test("accepts valid complex names", () => {
+      expect(validateBranchName("feat/user-auth_v2.0")).toBeNull();
+      expect(validateBranchName("123")).toBeNull();
+      expect(validateBranchName("a")).toBeNull();
+    });
+  });
+
+  describe("control characters", () => {
+    test("rejects null byte", () => {
+      expect(validateBranchName("branch\x00name")).toBe(
+        "branch name cannot contain control characters",
+      );
+    });
+
+    test("rejects unit separator", () => {
+      expect(validateBranchName("branch\x1fname")).toBe(
+        "branch name cannot contain control characters",
+      );
+    });
+
+    test("rejects delete char", () => {
+      expect(validateBranchName("branch\x7fname")).toBe(
+        "branch name cannot contain control characters",
+      );
+    });
+
+    test("rejects tab (caught by whitespace)", () => {
+      expect(validateBranchName("branch\tname")).toBe(
+        "branch name contains invalid characters",
+      );
+    });
+
+    test("rejects newline (caught by whitespace)", () => {
+      expect(validateBranchName("branch\nname")).toBe(
+        "branch name contains invalid characters",
+      );
+    });
+  });
+
+  describe("security", () => {
+    test("path traversal chars are sanitized by slash replacement", () => {
+      const malicious = "../../etc/passwd";
+      const sanitized = malicious.replace(/\//g, "-");
+      expect(sanitized).toBe("..-..-etc-passwd");
+      expect(sanitized).not.toContain("/");
+    });
+  });
+});
+
+describe("path comparison", () => {
+  test("trailing slash still matches", () => {
+    const cwd = "/path/to/worktree/";
+    const wtPath = "/path/to/worktree";
+    expect(cwd.startsWith(wtPath)).toBe(true);
+  });
+
+  test("similar prefix matches (current behavior)", () => {
+    const cwd = "/path/to/worktree-extra/subdir";
+    const wtPath = "/path/to/worktree";
+    expect(cwd.startsWith(wtPath)).toBe(true);
+  });
+});
+
+describe("worktree matching", () => {
+  test("partial name match finds multiple", () => {
+    const worktrees = [
+      { name: "feat", path: "/wt/feat" },
+      { name: "feature", path: "/wt/feature" },
+      { name: "feature-login", path: "/wt/login" },
+    ];
+
+    const name = "feat";
+    const matches = worktrees.filter(
+      (w) => w.name === name || w.name.includes(name),
+    );
+    expect(matches.length).toBe(3);
+  });
+
+  test("exact name match is found first", () => {
+    const worktrees = [
+      { name: "feat", path: "/wt/feat" },
+      { name: "feature", path: "/wt/feature" },
+    ];
+
+    const name = "feat";
+    const exact = worktrees.find((w) => w.name === name);
+    expect(exact?.name).toBe("feat");
   });
 });

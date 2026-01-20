@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { $ } from "bun";
+import { spinner } from "./ui";
 
 const WT_BASE = join(homedir(), ".wt");
 
@@ -124,10 +125,11 @@ export async function createWorktree(
   name: string,
 ): Promise<WorktreeResult> {
   const wtPath = join(repo.wtDir, name);
-  const branchName = name;
 
   await $`mkdir -p ${repo.wtDir}`;
+  await $`git -C ${repo.root} worktree prune`.quiet();
 
+  const s = spinner("Fetching origin...");
   try {
     await $`git -C ${repo.root} fetch origin main`.quiet();
   } catch {
@@ -143,7 +145,9 @@ export async function createWorktree(
     baseBranch = "origin/master";
   }
 
-  await $`git -C ${repo.root} worktree add -b ${branchName} ${wtPath} ${baseBranch}`;
+  s.update("Creating worktree...");
+  await $`git -C ${repo.root} worktree add -b ${name} ${wtPath} ${baseBranch}`.quiet();
+  s.stop();
   return { path: wtPath, sourceDir: repo.root };
 }
 
@@ -154,11 +158,20 @@ export async function checkoutWorktree(
   const branchName = remoteBranch
     .replace("origin/", "")
     .replace("refs/heads/", "");
-  const wtPath = join(repo.wtDir, branchName);
+  const dirName = branchName.replace(/\//g, "-");
+  const wtPath = join(repo.wtDir, dirName);
+
+  if (await Bun.file(join(wtPath, ".git")).exists()) {
+    return { path: wtPath, sourceDir: repo.root };
+  }
 
   await $`mkdir -p ${repo.wtDir}`;
+  await $`git -C ${repo.root} worktree prune`.quiet();
+  const s = spinner("Fetching branch...");
   await $`git -C ${repo.root} fetch origin ${branchName}`.quiet();
-  await $`git -C ${repo.root} worktree add ${wtPath} ${remoteBranch}`;
+  s.update("Creating worktree...");
+  await $`git -C ${repo.root} worktree add ${wtPath} ${remoteBranch}`.quiet();
+  s.stop();
   return { path: wtPath, sourceDir: repo.root };
 }
 
@@ -175,6 +188,19 @@ export async function getMainRepoPath(): Promise<string | null> {
 
   const repo = await getRepoInfo();
   return repo?.root ?? null;
+}
+
+export async function getCurrentBranch(
+  repoPath: string,
+): Promise<string | null> {
+  try {
+    const branch = (
+      await $`git -C ${repoPath} rev-parse --abbrev-ref HEAD`.text()
+    ).trim();
+    return branch === "HEAD" ? null : branch;
+  } catch {
+    return null;
+  }
 }
 
 function hasControlChars(str: string): boolean {
